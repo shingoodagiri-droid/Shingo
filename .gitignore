@@ -1,0 +1,12 @@
+# 認証情報・秘密情報
+credentials.json
+token.pickle
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# ログ
+logs/
