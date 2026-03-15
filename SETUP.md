@@ -39,6 +39,38 @@ python3 check_unreplied_estimates.py
 bash setup_cron.sh
 ```
 
+## 5. 予定準備まとめ機能（Google Calendar 連携）
+
+### Calendar API の有効化
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを開く
+2. 「APIとサービス」→「ライブラリ」→「Google Calendar API」を検索して有効化
+3. OAuth 同意画面に Calendar スコープ（`calendar.readonly`）を追加
+
+### 初回実行
+
+```bash
+python3 schedule_prep_summary.py
+```
+
+初回はブラウザで Calendar の読み取り権限も求められます。
+許可すると `token_calendar.pickle` が生成されます。
+
+### 使い方
+
+```bash
+# 翌営業日の予定を取得（デフォルト）
+python3 schedule_prep_summary.py
+
+# 特定の日付を指定
+python3 schedule_prep_summary.py 2026-03-16
+```
+
+各予定の内容（会議、プレゼン、面談など）に応じた準備事項が自動生成され、
+自分宛にメール通知されます。
+
+---
+
 ## 通知メールの例
 
 件名: 【未返信メール通知】2026/03/15 5件
