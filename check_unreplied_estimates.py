@@ -58,7 +58,7 @@ def get_unreplied_emails(service, my_email):
     """未返信・未読メールを検索して返す。"""
     # is:unread → 未読メール
     # -in:sent -in:draft -in:trash -in:spam → 不要なフォルダを除外
-    query = "is:unread -in:sent -in:draft -in:trash -in:spam"
+    query = "is:unread -in:sent -in:draft -in:trash -in:spam -from:@wagokoro.co.jp"
 
     results = []
     page_token = None
