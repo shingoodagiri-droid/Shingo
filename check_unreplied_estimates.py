@@ -1,37 +1,30 @@
 #!/usr/bin/env python3
 """
-未返信の見積もり案件をGmailから検索し、LINEに通知するスクリプト。
+未返信・未読メールをGmailから検索し、結果を自分宛にメール通知するスクリプト。
 毎朝9時にcronで実行することを想定。
 """
 
-import os
 import sys
 import pickle
-import urllib.request
-import urllib.parse
-import json
+import base64
 from datetime import datetime
+from email.mime.text import MIMEText
 from pathlib import Path
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from dotenv import load_dotenv
 
-# .env ファイルの読み込み
-SCRIPT_DIR = Path(__file__).resolve().parent
-load_dotenv(SCRIPT_DIR / ".env")
-
-# Gmail API のスコープ（読み取り専用）
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# Gmail API のスコープ（読み取り＋送信）
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 # ファイルパス
+SCRIPT_DIR = Path(__file__).resolve().parent
 CREDENTIALS_FILE = SCRIPT_DIR / "credentials.json"
 TOKEN_FILE = SCRIPT_DIR / "token.pickle"
-
-# LINE Messaging API 設定
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
-LINE_USER_ID = os.getenv("LINE_USER_ID", "")
 
 
 def authenticate():
@@ -61,16 +54,14 @@ def authenticate():
     return build("gmail", "v1", credentials=creds)
 
 
-def get_unreplied_estimates(service):
-    """件名に「見積」を含む未返信メールを検索して返す。"""
-    query = "subject:見積 -in:sent -in:draft -in:trash -in:spam"
+def get_unreplied_emails(service, my_email):
+    """未返信・未読メールを検索して返す。"""
+    # is:unread → 未読メール
+    # -in:sent -in:draft -in:trash -in:spam → 不要なフォルダを除外
+    query = "is:unread -in:sent -in:draft -in:trash -in:spam"
 
     results = []
     page_token = None
-
-    # 自分のメールアドレスを事前に取得（API呼び出し回数削減）
-    profile = service.users().getProfile(userId="me").execute()
-    my_email = profile.get("emailAddress", "").lower()
 
     while True:
         response = (
@@ -98,6 +89,7 @@ def get_unreplied_estimates(service):
                 for h in detail.get("payload", {}).get("headers", [])
             }
 
+            # 自分が返信済みかチェック
             thread_id = detail.get("threadId")
             if is_replied(service, thread_id, my_email):
                 continue
@@ -138,65 +130,59 @@ def is_replied(service, thread_id, my_email):
     return False
 
 
-def send_line_message(text):
-    """LINE Messaging API でプッシュメッセージを送信する。"""
-    if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_USER_ID:
-        print("エラー: LINE_CHANNEL_ACCESS_TOKEN または LINE_USER_ID が設定されていません。")
-        print("SETUP.md を参照して .env ファイルを設定してください。")
-        sys.exit(1)
-
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
-    }
-    body = json.dumps({
-        "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": text}],
-    }).encode("utf-8")
-
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-
-    try:
-        with urllib.request.urlopen(req) as res:
-            print(f"LINE送信成功 (status: {res.status})")
-    except urllib.error.HTTPError as e:
-        print(f"LINE送信エラー: {e.code} {e.read().decode()}")
-        sys.exit(1)
-
-
 def format_message(emails):
-    """検索結果をLINEメッセージ用にフォーマットする。"""
+    """検索結果をメール本文用にフォーマットする。"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     if not emails:
-        return f"[{now}]\n未返信の見積もり案件はありません。"
+        return f"[{now}]\n未返信・未読メールはありません。"
 
     lines = [
-        f"[{now}] 未返信見積もり案件",
+        f"未返信・未読メール一覧（{now}）",
         f"全{len(emails)}件",
-        "━━━━━━━━━━━━━━━",
+        "=" * 40,
     ]
 
     for i, email in enumerate(emails, 1):
         lines.append(f"\n[{i}] {email['subject']}")
-        lines.append(f"  From: {email['from']}")
-        lines.append(f"  Date: {email['date']}")
+        lines.append(f"  送信元: {email['from']}")
+        lines.append(f"  受信日: {email['date']}")
 
     return "\n".join(lines)
 
 
+def send_email(service, to_email, subject, body):
+    """自分宛にメールを送信する。"""
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["To"] = to_email
+    msg["From"] = to_email
+    msg["Subject"] = subject
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    service.users().messages().send(
+        userId="me", body={"raw": raw}
+    ).execute()
+    print("メール送信完了")
+
+
 def main():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 未返信見積もり案件の検索を開始...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 未返信・未読メールの検索を開始...")
 
     service = authenticate()
-    emails = get_unreplied_estimates(service)
 
-    message = format_message(emails)
-    print(message)
+    # 自分のメールアドレスを取得
+    profile = service.users().getProfile(userId="me").execute()
+    my_email = profile.get("emailAddress", "").lower()
 
-    send_line_message(message)
-    print(f"完了: {len(emails)}件をLINEに送信しました。")
+    emails = get_unreplied_emails(service, my_email)
+    body = format_message(emails)
+    print(body)
+
+    # 自分宛にメール送信
+    today = datetime.now().strftime("%Y/%m/%d")
+    send_email(service, my_email, f"【未返信メール通知】{today} {len(emails)}件", body)
+
+    print(f"完了: {len(emails)}件の未返信メールを通知しました。")
 
 
 if __name__ == "__main__":
