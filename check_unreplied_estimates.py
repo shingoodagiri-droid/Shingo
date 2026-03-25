@@ -159,9 +159,20 @@ def send_email(service, to_email, subject, body):
     msg["Subject"] = subject
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    service.users().messages().send(
+    sent = service.users().messages().send(
         userId="me", body={"raw": raw}
     ).execute()
+
+    # 自分宛メールの重複通知を防ぐため、送信済みメールのINBOXラベルを除去
+    try:
+        service.users().messages().modify(
+            userId="me",
+            id=sent["id"],
+            body={"removeLabelIds": ["INBOX"]}
+        ).execute()
+    except Exception:
+        pass  # ラベル除去に失敗しても送信自体は成功している
+
     print("メール送信完了")
 
 
