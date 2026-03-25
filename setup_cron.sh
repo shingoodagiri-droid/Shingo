@@ -4,8 +4,12 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CRON_CMD="0 9 * * * $SCRIPT_DIR/run_checker.sh >> $SCRIPT_DIR/logs/cron.log 2>&1"
 
-# 既存のcronジョブに同じエントリがないか確認
-if crontab -l 2>/dev/null | grep -F "run_checker.sh" > /dev/null; then
+# 既存のrun_checker.shエントリを全て削除してから1つだけ登録（重複防止）
+EXISTING=$(crontab -l 2>/dev/null | grep -c "run_checker.sh")
+if [ "$EXISTING" -gt 1 ]; then
+    echo "重複したcronジョブを検出しました（${EXISTING}件）。整理します..."
+    crontab -l 2>/dev/null | grep -v "run_checker.sh" | crontab -
+elif [ "$EXISTING" -eq 1 ]; then
     echo "既にcronジョブが登録されています。"
     echo "現在の設定:"
     crontab -l | grep "run_checker.sh"
