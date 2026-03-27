@@ -153,26 +153,17 @@ def format_message(emails):
 
 
 def send_email(service, to_email, subject, body):
-    """自分宛にメールを送信する。"""
+    """自分宛にメールを送信する（insertで直接受信トレイに配置し重複を防ぐ）。"""
     msg = MIMEText(body, "plain", "utf-8")
     msg["To"] = to_email
     msg["From"] = to_email
     msg["Subject"] = subject
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    sent = service.users().messages().send(
-        userId="me", body={"raw": raw}
+    service.users().messages().insert(
+        userId="me",
+        body={"raw": raw, "labelIds": ["INBOX"]},
     ).execute()
-
-    # 自分宛メールの重複通知を防ぐため、送信済みメールのINBOXラベルを除去
-    try:
-        service.users().messages().modify(
-            userId="me",
-            id=sent["id"],
-            body={"removeLabelIds": ["INBOX"]}
-        ).execute()
-    except Exception:
-        pass  # ラベル除去に失敗しても送信自体は成功している
 
     print("メール送信完了")
 
